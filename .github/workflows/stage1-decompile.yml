@@ -1,0 +1,49 @@
+name: Stage 1 - Decompile Check
+
+# Manual trigger only — you run this from the Actions tab, or later from the Telegram bot
+on:
+  workflow_dispatch:
+    inputs:
+      apk_path:
+        description: 'Path to the APK inside this repo (e.g. samples/app.apk)'
+        required: true
+        default: 'samples/app.apk'
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install apktool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apktool
+
+      - name: Confirm apktool installed
+        run: apktool --version
+
+      - name: Run Stage 1 (decompile only)
+        run: python3 tools/extract_and_encrypt.py "${{ inputs.apk_path }}"
+
+      - name: List smali output for com/myapp/in
+        run: |
+          echo "Searching for com/myapp/in across all smali roots..."
+          find build/decoded -type d -path "*com/myapp/in" || echo "Not found under that exact path — check for renaming/obfuscation"
+          echo ""
+          echo "All smali_* roots present:"
+          find build/decoded -maxdepth 1 -type d -name "smali*"
+
+      - name: Upload decompiled output as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: decoded-output
+          path: build/decoded
+          retention-days: 3
