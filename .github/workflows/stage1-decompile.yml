@@ -1,4 +1,4 @@
-name: Stage 1 - Decompile Check
+name: Stage 1+2 - Decompile and Classify
 
 # Manual trigger only — you run this from the Actions tab, or later from the Telegram bot
 on:
@@ -41,17 +41,32 @@ jobs:
       - name: Run Stage 1 (decompile only)
         run: python3 tools/extract_and_encrypt.py "${{ inputs.apk_path }}"
 
-      - name: List smali output for com/myapp/in
+      - name: Run Stage 2 (locate keep vs extract classes)
+        run: python3 tools/dex_builder/smali_locator.py build/decoded
+
+      - name: Show class split summary
         run: |
-          echo "Searching for com/myapp/in across all smali roots..."
-          find build/decoded -type d -path "*com/myapp/in" || echo "Not found under that exact path — check for renaming/obfuscation"
+          echo "KEEP (loader dex) — sample of first 20:"
+          head -n 20 build/keep_classes.txt
           echo ""
-          echo "All smali_* roots present:"
-          find build/decoded -maxdepth 1 -type d -name "smali*"
+          echo "EXTRACT (logic dex, to encrypt) — sample of first 20:"
+          head -n 20 build/extract_classes.txt
+          echo ""
+          echo "KEEP count: $(wc -l < build/keep_classes.txt)"
+          echo "EXTRACT count: $(wc -l < build/extract_classes.txt)"
 
       - name: Upload decompiled output as artifact
         uses: actions/upload-artifact@v4
         with:
           name: decoded-output
           path: build/decoded
+          retention-days: 3
+
+      - name: Upload class split lists as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: class-split-lists
+          path: |
+            build/keep_classes.txt
+            build/extract_classes.txt
           retention-days: 3
