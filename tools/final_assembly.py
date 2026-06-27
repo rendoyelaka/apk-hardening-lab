@@ -95,7 +95,7 @@ def scaffold_final_project():
 
 def run_apktool_build():
     import subprocess
-    cmd = ["apktool", "b", str(FINAL_PROJECT_DIR), "-o", str(OUTPUT_APK)]
+    cmd = ["apktool", "b", str(FINAL_PROJECT_DIR), "-o", str(OUTPUT_APK), "--use-aapt2"]
     print(f"[*] Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
 
