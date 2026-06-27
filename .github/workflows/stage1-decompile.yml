@@ -379,6 +379,21 @@ jobs:
           echo "Unsigned APK:"; ls -la build/final_unsigned.apk
           echo "Native libs downloaded:"; find build/native-libs -name "*.so"
 
+      - name: Install build-tools' aapt2 explicitly
+        run: |
+          BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -type d | sort -V | tail -1)
+          echo "build-tools dir: $BUILD_TOOLS_DIR"
+          "$BUILD_TOOLS_DIR/aapt2" version
+
+      - name: "DIAGNOSE 1 — dump badging on the RAW unsigned APK (pre .so, pre-sign)"
+        run: |
+          BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -type d | sort -V | tail -1)
+          echo "=== aapt2 dump badging (raw unsigned APK from Stage 6) ==="
+          "$BUILD_TOOLS_DIR/aapt2" dump badging build/final_unsigned.apk || echo "[X] aapt2 dump badging FAILED on the raw unsigned APK"
+          echo ""
+          echo "=== unzip -t integrity check (raw unsigned APK) ==="
+          unzip -t build/final_unsigned.apk | tail -20
+
       - name: Insert native .so into APK under lib/arm64-v8a/
         run: |
           set -e
@@ -400,6 +415,15 @@ jobs:
 
           echo "APK contents (lib/ entries):"
           unzip -l build/apk-with-native.apk | grep "lib/" || echo "[!] No lib/ entries found — check the steps above"
+
+      - name: "DIAGNOSE 2 — dump badging after .so insertion (pre zipalign/sign)"
+        run: |
+          BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -type d | sort -V | tail -1)
+          echo "=== aapt2 dump badging (after .so insertion, before zipalign/sign) ==="
+          "$BUILD_TOOLS_DIR/aapt2" dump badging build/apk-with-native.apk || echo "[X] aapt2 dump badging FAILED after .so insertion"
+          echo ""
+          echo "=== unzip -t integrity check (after .so insertion) ==="
+          unzip -t build/apk-with-native.apk | tail -20
 
       - name: Zipalign the APK
         run: |
@@ -433,6 +457,15 @@ jobs:
           echo "Final signed APK:"
           ls -la build/final_signed_debug.apk
           echo "Size: $(du -h build/final_signed_debug.apk | cut -f1)"
+
+      - name: "DIAGNOSE 3 — dump badging on the FINAL signed APK"
+        run: |
+          BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -type d | sort -V | tail -1)
+          echo "=== aapt2 dump badging (final signed APK) ==="
+          "$BUILD_TOOLS_DIR/aapt2" dump badging build/final_signed_debug.apk || echo "[X] aapt2 dump badging FAILED on the final signed APK"
+          echo ""
+          echo "=== unzip -t integrity check (final signed APK) ==="
+          unzip -t build/final_signed_debug.apk | tail -20
 
       - name: Upload final signed (debug) APK as artifact
         uses: actions/upload-artifact@v4
