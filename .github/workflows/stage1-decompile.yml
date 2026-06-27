@@ -26,14 +26,19 @@ jobs:
         id: cache-apktool
         uses: actions/cache@v4
         with:
-          path: /usr/bin/apktool
-          key: apktool-bin-v1
+          path: /usr/local/bin/apktool*
+          key: apktool-jar-2.9.3-v1
 
-      - name: Install apktool (cache miss only)
+      - name: Install apktool (official jar, cache miss only)
         if: steps.cache-apktool.outputs.cache-hit != 'true'
         run: |
+          curl -L -o apktool https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool
+          curl -L -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar
+          chmod +x apktool
+          sudo mv apktool /usr/local/bin/apktool
+          sudo mv apktool.jar /usr/local/bin/apktool.jar
           sudo apt-get update
-          sudo apt-get install -y apktool
+          sudo apt-get install -y aapt
 
       - name: Confirm apktool installed
         run: apktool --version
