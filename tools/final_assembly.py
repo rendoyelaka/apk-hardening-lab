@@ -6,6 +6,7 @@ Stage 6 — the last automatable step.
 
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -19,6 +20,13 @@ FINAL_PROJECT_DIR = Path("build/final_project")
 OUTPUT_APK = Path("build/final_unsigned.apk")
 
 TYPE_FOLDER_RE = re.compile(r"^type\d+$")
+MAX_BUILD_ATTEMPTS = 15
+
+# Matches both failure styles aapt2 prints for unrecoverable resource files:
+#   W: error: invalid file path '/abs/path/res/type1/anim0004.xml'.
+#   W: /abs/path/res/values/animators.xml:3: error: invalid value for type 'X'. ...
+INVALID_FILE_PATH_RE = re.compile(r"invalid file path '([^']+)'")
+FILE_FAILED_TO_COMPILE_RE = re.compile(r"(/\S+\.xml): error: file failed to compile")
 
 
 def find_smali_roots(decoded_dir: Path):
@@ -93,20 +101,58 @@ def scaffold_final_project():
     print(f"[!] Both must be added before this APK will actually install/run.")
 
 
+def extract_broken_resource_files(stderr_text: str):
+    """Parse aapt2's stderr for every resource file it could not compile,
+    regardless of which of the two failure message styles it used."""
+    broken = set()
+    for line in stderr_text.splitlines():
+        m = INVALID_FILE_PATH_RE.search(line)
+        if m:
+            broken.add(Path(m.group(1)))
+            continue
+        m = FILE_FAILED_TO_COMPILE_RE.search(line.strip())
+        if m:
+            broken.add(Path(m.group(1)))
+    return broken
+
+
 def run_apktool_build():
-    import subprocess
     cmd = ["apktool", "b", str(FINAL_PROJECT_DIR), "-o", str(OUTPUT_APK), "--use-aapt2"]
-    print(f"[*] Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
 
-    if result.returncode != 0:
-        print("[X] Final apktool build failed")
-        print(result.stdout[-4000:])
-        print(result.stderr[-4000:])
-        sys.exit(1)
+    for attempt in range(1, MAX_BUILD_ATTEMPTS + 1):
+        print(f"[*] Running (attempt {attempt}/{MAX_BUILD_ATTEMPTS}): {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
 
-    print(f"[OK] Built final (unsigned, no .so) APK at {OUTPUT_APK}")
-    print(f"[*] Size: {OUTPUT_APK.stat().st_size / 1024:.1f} KB")
+        if result.returncode == 0:
+            print(f"[OK] Built final (unsigned, no .so) APK at {OUTPUT_APK}")
+            print(f"[*] Size: {OUTPUT_APK.stat().st_size / 1024:.1f} KB")
+            return
+
+        combined = result.stdout + "\n" + result.stderr
+        broken_files = extract_broken_resource_files(combined)
+        existing_broken = [p for p in broken_files if p.exists()]
+
+        if not existing_broken:
+            # Nothing new to remove — this failure isn't one we know how
+            # to self-heal, so stop and show the real error.
+            print("[X] Final apktool build failed (no further auto-fixable "
+                  "resource files identified)")
+            print(result.stdout[-4000:])
+            print(result.stderr[-4000:])
+            sys.exit(1)
+
+        print(f"[*] aapt2 rejected {len(existing_broken)} resource file(s) this "
+              f"attempt (unresolved/corrupted type names inherited from the "
+              f"original APK's resource table). Removing and retrying:")
+        for p in sorted(existing_broken):
+            print(f"      - {p}")
+            p.unlink()
+
+    print(f"[X] Final apktool build still failing after {MAX_BUILD_ATTEMPTS} "
+          f"auto-fix attempts. Last error:")
+    print(result.stdout[-4000:])
+    print(result.stderr[-4000:])
+    sys.exit(1)
 
 
 def main():
