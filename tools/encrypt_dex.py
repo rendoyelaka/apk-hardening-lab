@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 try:
-    from Cryptodome.Cipher import AES
+    from Crypto.Cipher import AES
 except ImportError:
     print("[X] pycryptodome not installed. Run: pip install pycryptodome --break-system-packages")
     sys.exit(1)
