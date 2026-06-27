@@ -1,4 +1,4 @@
-name: Stage 1+2 - Decompile and Classify
+name: Stage 1+2+3 - Decompile, Classify, Build Dex
 
 # Manual trigger only — you run this from the Actions tab, or later from the Telegram bot
 on:
@@ -69,4 +69,19 @@ jobs:
           path: |
             build/keep_classes.txt
             build/extract_classes.txt
+          retention-days: 3
+
+      - name: Run Stage 3 (build standalone dex from EXTRACT classes)
+        run: python3 tools/dex_assembler.py build/decoded build/extract_classes.txt
+
+      - name: Show dex build result
+        run: |
+          ls -la build/extracted_classes.dex
+          echo "Dex size: $(du -h build/extracted_classes.dex | cut -f1)"
+
+      - name: Upload extracted dex as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extracted-dex
+          path: build/extracted_classes.dex
           retention-days: 3
