@@ -167,3 +167,35 @@ jobs:
       - name: Show build output if successful
         if: success()
         run: find build/native-check -name "*.so" -exec ls -la {} \;
+
+  loader-module-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build loader-module and produce dex
+        run: gradle :loader-module:assembleDebug --no-daemon
+
+      - name: Locate and show resulting AAR/dex
+        run: |
+          echo "Searching for build output..."
+          find loader-module/build -name "*.aar" -o -name "classes.dex" | head -20
+
+      - name: Upload loader-module build output as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: loader-module-build-output
+          path: loader-module/build/outputs
+          retention-days: 3
