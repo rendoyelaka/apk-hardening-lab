@@ -33,6 +33,13 @@ INVALID_RESOURCE_TYPE_IN_PUBLIC_RE = re.compile(r"(/\S+\.xml):\d+: error: invali
 NO_DEFINITION_FOR_SYMBOL_RE = re.compile(
     r"no definition for declared symbol '[^:]+:([^/]+)/([^']+)'"
 )
+RESOURCE_NOT_FOUND_RE = re.compile(
+    r"error: resource ([^\s/]+)/(\S+) \(aka [^)]+\) not found"
+)
+ITEM_NAME_ENTRY_RE_TEMPLATE = (
+    r'<item[^>]*\bname="{name}"[^>]*>.*?</item>\s*\n?'
+    r'|<item[^>]*\bname="{name}"[^>]*/>\s*\n?'
+)
 
 
 def find_smali_roots(decoded_dir: Path):
@@ -110,6 +117,42 @@ def strip_dangling_public_symbols(stderr_text: str) -> int:
     if removed:
         public_xml.write_text(content, encoding="utf-8")
     return removed
+
+
+def strip_dangling_value_items(stderr_text: str) -> int:
+    """aapt2's link stage also fails with 'resource type/name (aka
+    pkg:type/name) not found' when a values file (styles.xml, themes.xml,
+    etc. — across any values*/ variant directory) still has an <item>
+    referencing an attr/resource whose definition no longer exists
+    (already removed earlier in this loop, or already broken in the
+    original APK). Strip exactly the matching <item name="..."> entries
+    from every values*.xml file under res/; everything else is untouched."""
+    res_dir = FINAL_PROJECT_DIR / "res"
+    if not res_dir.exists():
+        return 0
+
+    names = {name for _, name in RESOURCE_NOT_FOUND_RE.findall(stderr_text)}
+    if not names:
+        return 0
+
+    removed_total = 0
+    for values_dir in res_dir.glob("values*"):
+        if not values_dir.is_dir():
+            continue
+        for xml_file in values_dir.glob("*.xml"):
+            content = xml_file.read_text(encoding="utf-8")
+            new_content = content
+            for name in names:
+                pattern = re.compile(
+                    ITEM_NAME_ENTRY_RE_TEMPLATE.format(name=re.escape(name)),
+                    re.DOTALL,
+                )
+                new_content, n = pattern.subn("", new_content)
+                removed_total += n
+            if new_content != content:
+                xml_file.write_text(new_content, encoding="utf-8")
+
+    return removed_total
 
 
 def scaffold_final_project():
@@ -202,11 +245,17 @@ def run_apktool_build():
         combined = result.stdout + "\n" + result.stderr
 
         dangling_removed = strip_dangling_public_symbols(combined)
-        if dangling_removed:
-            print(f"[*] Removed {dangling_removed} dangling <public> entr"
-                  f"{'y' if dangling_removed == 1 else 'ies'} from "
-                  f"res/values/public.xml (symbol no longer backed by any "
-                  f"resource file) — retrying:")
+        dangling_items_removed = strip_dangling_value_items(combined)
+        if dangling_removed or dangling_items_removed:
+            if dangling_removed:
+                print(f"[*] Removed {dangling_removed} dangling <public> entr"
+                      f"{'y' if dangling_removed == 1 else 'ies'} from "
+                      f"res/values/public.xml (symbol no longer backed by any "
+                      f"resource file)")
+            if dangling_items_removed:
+                print(f"[*] Removed {dangling_items_removed} dangling <item> "
+                      f"reference{'s' if dangling_items_removed != 1 else ''} "
+                      f"from values*.xml files (resource not found) — retrying:")
             continue
 
         broken_files = extract_broken_resource_files(combined)
