@@ -336,6 +336,48 @@ def strip_orphaned_public_entries() -> int:
     return removed
 
 
+def strip_dangling_style_parents(stderr_text: str) -> int:
+    """A <style parent="@style/X"> reference to a style that was removed
+    (because it had no real definition) causes the exact same chain of
+    'resource style/X not found' errors revealed one layer at a time.
+    Find every <style ... parent="...XXXX"> in any values*.xml file where
+    XXXX matches a name reported as not-found, and drop just the parent
+    attribute (Android treats a style with no parent as extending
+    nothing, which is always valid) instead of waiting for aapt2 to
+    surface each broken link in the chain individually."""
+    names = {name for _, name in RESOURCE_NOT_FOUND_RE.findall(stderr_text)}
+    if not names:
+        return 0
+
+    res_dir = FINAL_PROJECT_DIR / "res"
+    if not res_dir.exists():
+        return 0
+
+    removed = 0
+    for values_dir in res_dir.glob("values*"):
+        if not values_dir.is_dir():
+            continue
+        for xml_file in values_dir.glob("*.xml"):
+            try:
+                content = xml_file.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            new_content = content
+            for name in names:
+                # parent="@style/Name" or parent="Name" or parent='...'
+                pattern = re.compile(
+                    r'\s+parent="@style/' + re.escape(name) + r'"'
+                    r'|\s+parent=\'@style/' + re.escape(name) + r"'"
+                    r'|\s+parent="' + re.escape(name) + r'"'
+                )
+                new_content, n = pattern.subn("", new_content)
+                removed += n
+            if new_content != content:
+                xml_file.write_text(new_content, encoding="utf-8")
+
+    return removed
+
+
 def run_apktool_build():
     cmd = ["apktool", "b", str(FINAL_PROJECT_DIR), "-o", str(OUTPUT_APK), "--use-aapt2", "-f"]
 
@@ -352,7 +394,8 @@ def run_apktool_build():
 
         dangling_removed = strip_dangling_public_symbols(combined)
         dangling_items_removed = strip_dangling_value_items(combined)
-        if dangling_removed or dangling_items_removed:
+        dangling_parents_removed = strip_dangling_style_parents(combined)
+        if dangling_removed or dangling_items_removed or dangling_parents_removed:
             if dangling_removed:
                 print(f"[*] Removed {dangling_removed} dangling <public> entr"
                       f"{'y' if dangling_removed == 1 else 'ies'} from "
@@ -362,6 +405,10 @@ def run_apktool_build():
                 print(f"[*] Removed {dangling_items_removed} dangling <item> "
                       f"reference{'s' if dangling_items_removed != 1 else ''} "
                       f"from values*.xml files (resource not found) — retrying:")
+            if dangling_parents_removed:
+                print(f"[*] Removed {dangling_parents_removed} dangling style "
+                      f"parent reference{'s' if dangling_parents_removed != 1 else ''} "
+                      f"(parent style no longer exists) — retrying:")
             continue
 
         broken_files = extract_broken_resource_files(combined)
