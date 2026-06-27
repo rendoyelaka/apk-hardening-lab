@@ -151,13 +151,17 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
+          OPENSSL_DIR=$(find third_party/openssl-arm64-v8a -maxdepth 2 -type d -name "lib" -exec dirname {} \;)
+          echo "Resolved OpenSSL root: $OPENSSL_DIR"
+          ls -la "$OPENSSL_DIR"
+
           mkdir -p build/native-check
           cd build/native-check
           cmake ../../tools/native \
             -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-24 \
-            -DOPENSSL_ROOT_DIR=${GITHUB_WORKSPACE}/third_party/openssl-arm64-v8a
+            -DOPENSSL_ROOT_DIR="${GITHUB_WORKSPACE}/${OPENSSL_DIR}"
           cmake --build . --verbose
 
       - name: Show build output if successful
