@@ -20,6 +20,7 @@ FINAL_PROJECT_DIR = Path("build/final_project")
 OUTPUT_APK = Path("build/final_unsigned.apk")
 
 TYPE_FOLDER_RE = re.compile(r"^type\d+$")
+PUBLIC_BROKEN_TYPE_ENTRY_RE = re.compile(r'<public[^>]*\btype="type\d+"[^>]*/>\s*\n?')
 MAX_BUILD_ATTEMPTS = 15
 
 # Matches both failure styles aapt2 prints for unrecoverable resource files:
@@ -28,6 +29,7 @@ MAX_BUILD_ATTEMPTS = 15
 INVALID_FILE_PATH_RE = re.compile(r"invalid file path '([^']+)'")
 FILE_FAILED_TO_COMPILE_RE = re.compile(r"(/\S+\.xml): error: file failed to compile")
 INVALID_VALUE_FOR_TYPE_RE = re.compile(r"(/\S+\.xml):\d+: error: invalid value for type")
+INVALID_RESOURCE_TYPE_IN_PUBLIC_RE = re.compile(r"(/\S+\.xml):\d+: error: invalid resource type")
 
 
 def find_smali_roots(decoded_dir: Path):
@@ -49,6 +51,25 @@ def strip_unresolved_type_folders():
             shutil.rmtree(entry)
     if removed:
         print(f"[*] Removed unresolved resource type folders: {', '.join(sorted(removed))}")
+
+
+def strip_broken_public_entries():
+    """res/values/public.xml declares <public type="typeN" .../> entries
+    for resource types whose real names were stripped from the original
+    APK's resource table (commonly by R8's resource shrinker). 'typeN' is
+    apktool's placeholder, not a real Android resource type, so aapt2
+    always rejects it. There is no real name to recover here, so the only
+    option is to drop these specific declarations; every correctly-named
+    type (string, drawable, layout, etc.) is left untouched."""
+    public_xml = FINAL_PROJECT_DIR / "res" / "values" / "public.xml"
+    if not public_xml.exists():
+        return
+    original = public_xml.read_text(encoding="utf-8")
+    cleaned, count = PUBLIC_BROKEN_TYPE_ENTRY_RE.subn("", original)
+    if count:
+        public_xml.write_text(cleaned, encoding="utf-8")
+        print(f"[*] Removed {count} broken <public type=\"typeN\"> entr"
+              f"{'y' if count == 1 else 'ies'} from res/values/public.xml")
 
 
 def scaffold_final_project():
@@ -96,6 +117,7 @@ def scaffold_final_project():
     shutil.copy(ENCRYPTED_BLOB, final_assets_dir / "logic.bin")
 
     strip_unresolved_type_folders()
+    strip_broken_public_entries()
 
     print(f"[!] NOTE: native .so libraries are NOT added by this script.")
     print(f"[!] NOTE: this APK is NOT signed by this script.")
@@ -116,6 +138,10 @@ def extract_broken_resource_files(stderr_text: str):
             broken.add(Path(m.group(1)))
             continue
         m = INVALID_VALUE_FOR_TYPE_RE.search(line)
+        if m:
+            broken.add(Path(m.group(1)))
+            continue
+        m = INVALID_RESOURCE_TYPE_IN_PUBLIC_RE.search(line)
         if m:
             broken.add(Path(m.group(1)))
     return broken
@@ -150,8 +176,18 @@ def run_apktool_build():
               f"attempt (unresolved/corrupted type names inherited from the "
               f"original APK's resource table). Removing and retrying:")
         for p in sorted(existing_broken):
-            print(f"      - {p}")
-            p.unlink()
+            if p.name == "public.xml":
+                print(f"      - {p} (re-stripping broken <public> entries instead of deleting)")
+                original = p.read_text(encoding="utf-8")
+                cleaned, count = PUBLIC_BROKEN_TYPE_ENTRY_RE.subn("", original)
+                if count:
+                    p.write_text(cleaned, encoding="utf-8")
+                else:
+                    # nothing left to strip safely; avoid an infinite loop
+                    p.unlink()
+            else:
+                print(f"      - {p}")
+                p.unlink()
 
     print(f"[X] Final apktool build still failing after {MAX_BUILD_ATTEMPTS} "
           f"auto-fix attempts. Last error:")
