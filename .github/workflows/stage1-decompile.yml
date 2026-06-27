@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       apk_path:
-        description: 'Path to the APK inside this repo (e.g. samples/app.apk)'
+        description: 'Path to the APK inside this repo (e.g. companion.apk)'
         required: true
-        default: 'samples/app.apk'
+        default: 'companion.apk'
 
 jobs:
   decompile:
