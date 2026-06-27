@@ -300,6 +300,11 @@ jobs:
           echo "lists:"; ls -la build/*.txt
           echo "assets:"; ls -la assets
           echo "loader smali:"; find build/loader-module-smali -name "*.smali"
+          echo "--- DIAGNOSING res/type1 issue ---"
+          echo "Does type1 exist in original decoded res?"
+          find build/decoded/res -maxdepth 1 -name "type1" -o -maxdepth 1 -name "values*" | head -20
+          echo "Contents of res/values/public.xml (first 30 lines), if present:"
+          find build/decoded/res -name "public.xml" -exec head -30 {} \;
 
       - name: Run Stage 6 (final assembly)
         run: python3 tools/final_assembly.py build/decoded build/keep_classes.txt build/extract_classes.txt build/loader-module-smali assets/logic.bin
