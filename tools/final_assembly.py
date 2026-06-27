@@ -371,6 +371,41 @@ def strip_raw_typen_references(stderr_text: str) -> int:
     return removed
 
 
+def strip_dangling_manifest_attrs(stderr_text: str) -> int:
+    """AndroidManifest.xml can itself reference a dangling resource (e.g.
+    android:theme="@style/X" or android:resource="@xml/Y") that no longer
+    exists. The manifest is never deleted, but individual broken
+    attributes referencing a reported not-found symbol can be safely
+    removed — Android treats a missing theme/resource attribute as
+    'use the default', which is always valid."""
+    manifest = FINAL_PROJECT_DIR / "AndroidManifest.xml"
+    if not manifest.exists():
+        return 0
+
+    pairs = set(RESOURCE_NOT_FOUND_RE.findall(stderr_text))
+    if not pairs:
+        return 0
+
+    try:
+        content = manifest.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return 0
+
+    new_content = content
+    removed = 0
+    for res_type, res_name in pairs:
+        # android:theme="@style/Name", android:resource="@xml/Name", etc.
+        pattern = re.compile(
+            r'\s+[\w:]+="@' + re.escape(res_type) + r'/' + re.escape(res_name) + r'"'
+        )
+        new_content, n = pattern.subn("", new_content)
+        removed += n
+
+    if removed:
+        manifest.write_text(new_content, encoding="utf-8")
+    return removed
+
+
 def strip_dangling_style_parents(stderr_text: str) -> int:
     """A <style parent="@style/X"> reference to a style that was removed
     (because it had no real definition) causes the exact same chain of
@@ -431,7 +466,9 @@ def run_apktool_build():
         dangling_items_removed = strip_dangling_value_items(combined)
         dangling_parents_removed = strip_dangling_style_parents(combined)
         raw_typen_removed = strip_raw_typen_references(combined)
-        if dangling_removed or dangling_items_removed or dangling_parents_removed or raw_typen_removed:
+        manifest_attrs_removed = strip_dangling_manifest_attrs(combined)
+        if (dangling_removed or dangling_items_removed or dangling_parents_removed
+                or raw_typen_removed or manifest_attrs_removed):
             if dangling_removed:
                 print(f"[*] Removed {dangling_removed} dangling <public> entr"
                       f"{'y' if dangling_removed == 1 else 'ies'} from "
@@ -448,6 +485,10 @@ def run_apktool_build():
             if raw_typen_removed:
                 print(f"[*] Removed {raw_typen_removed} line(s) containing a "
                       f"literal @typeN/... raw reference — retrying:")
+            if manifest_attrs_removed:
+                print(f"[*] Removed {manifest_attrs_removed} dangling attribute"
+                      f"{'s' if manifest_attrs_removed != 1 else ''} from "
+                      f"AndroidManifest.xml (referenced resource not found) — retrying:")
             continue
 
         broken_files = extract_broken_resource_files(combined)
