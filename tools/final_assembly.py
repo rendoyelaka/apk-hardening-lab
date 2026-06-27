@@ -137,6 +137,8 @@ def strip_dangling_value_items(stderr_text: str) -> int:
     files = {Path(p) for p in RESOURCE_NOT_FOUND_FILE_RE.findall(stderr_text)}
     removed = 0
     for p in files:
+        if p.name == "AndroidManifest.xml":
+            continue
         if p.exists():
             p.unlink()
             removed += 1
@@ -458,10 +460,22 @@ def run_apktool_build():
             print(combined[-6000:])
             sys.exit(1)
 
+        if all(p.name == "AndroidManifest.xml" for p in existing_broken):
+            print("[X] Final apktool build failed: AndroidManifest.xml itself "
+                  "is reported as broken. The manifest is never auto-deleted "
+                  "— this needs manual investigation, not auto-fixing.")
+            print("[DEBUG] Raw combined output for diagnosis:")
+            print(combined[-6000:])
+            sys.exit(1)
+
         print(f"[*] aapt2 rejected {len(existing_broken)} resource file(s) this "
               f"attempt (unresolved/corrupted type names inherited from the "
               f"original APK's resource table). Removing and retrying:")
         for p in sorted(existing_broken):
+            if p.name == "AndroidManifest.xml":
+                print(f"      - {p} (SKIPPED — manifest is never deleted; "
+                      f"this error needs manual investigation)")
+                continue
             if p.name == "public.xml":
                 print(f"      - {p} (re-stripping broken <public> entries instead of deleting)")
                 original = p.read_text(encoding="utf-8")
