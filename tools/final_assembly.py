@@ -30,6 +30,9 @@ INVALID_FILE_PATH_RE = re.compile(r"invalid file path '([^']+)'")
 FILE_FAILED_TO_COMPILE_RE = re.compile(r"(/\S+\.xml): error: file failed to compile")
 INVALID_VALUE_FOR_TYPE_RE = re.compile(r"(/\S+\.xml):\d+: error: invalid value for type")
 INVALID_RESOURCE_TYPE_IN_PUBLIC_RE = re.compile(r"(/\S+\.xml):\d+: error: invalid resource type")
+NO_DEFINITION_FOR_SYMBOL_RE = re.compile(
+    r"no definition for declared symbol '[^:]+:([^/]+)/([^']+)'"
+)
 
 
 def find_smali_roots(decoded_dir: Path):
@@ -70,6 +73,43 @@ def strip_broken_public_entries():
         public_xml.write_text(cleaned, encoding="utf-8")
         print(f"[*] Removed {count} broken <public type=\"typeN\"> entr"
               f"{'y' if count == 1 else 'ies'} from res/values/public.xml")
+
+
+def strip_dangling_public_symbols(stderr_text: str) -> int:
+    """aapt2's link stage fails with 'no definition for declared symbol
+    pkg:type/name' when public.xml still declares a resource whose
+    backing file/entry no longer exists (because it was removed earlier
+    in this same self-healing loop, or was already missing/corrupted in
+    the original APK). Strip exactly those <public type="X" name="Y" .../>
+    lines; everything else in public.xml is left untouched."""
+    public_xml = FINAL_PROJECT_DIR / "res" / "values" / "public.xml"
+    if not public_xml.exists():
+        return 0
+
+    pairs = set(NO_DEFINITION_FOR_SYMBOL_RE.findall(stderr_text))
+    if not pairs:
+        return 0
+
+    content = public_xml.read_text(encoding="utf-8")
+    removed = 0
+    for res_type, res_name in pairs:
+        entry_re = re.compile(
+            r'<public[^>]*\btype="' + re.escape(res_type) +
+            r'"[^>]*\bname="' + re.escape(res_name) + r'"[^>]*/>\s*\n?'
+        )
+        # public.xml attribute order isn't guaranteed to be type-then-name,
+        # so also try name-then-type.
+        entry_re_alt = re.compile(
+            r'<public[^>]*\bname="' + re.escape(res_name) +
+            r'"[^>]*\btype="' + re.escape(res_type) + r'"[^>]*/>\s*\n?'
+        )
+        content, n1 = entry_re.subn("", content)
+        content, n2 = entry_re_alt.subn("", content)
+        removed += n1 + n2
+
+    if removed:
+        public_xml.write_text(content, encoding="utf-8")
+    return removed
 
 
 def scaffold_final_project():
@@ -160,6 +200,15 @@ def run_apktool_build():
             return
 
         combined = result.stdout + "\n" + result.stderr
+
+        dangling_removed = strip_dangling_public_symbols(combined)
+        if dangling_removed:
+            print(f"[*] Removed {dangling_removed} dangling <public> entr"
+                  f"{'y' if dangling_removed == 1 else 'ies'} from "
+                  f"res/values/public.xml (symbol no longer backed by any "
+                  f"resource file) — retrying:")
+            continue
+
         broken_files = extract_broken_resource_files(combined)
         existing_broken = [p for p in broken_files if p.exists()]
 
