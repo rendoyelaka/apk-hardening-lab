@@ -254,10 +254,16 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install apktool
+      - name: Install apktool (official jar, not apt package)
         run: |
+          curl -L -o apktool https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool
+          curl -L -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar
+          chmod +x apktool
+          sudo mv apktool /usr/local/bin/apktool
+          sudo mv apktool.jar /usr/local/bin/apktool.jar
           sudo apt-get update
-          sudo apt-get install -y apktool aapt
+          sudo apt-get install -y aapt
+          apktool --version
 
       - name: Verify aapt actually runs
         run: |
