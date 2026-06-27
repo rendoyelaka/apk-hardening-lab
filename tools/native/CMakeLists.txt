@@ -2,24 +2,36 @@ cmake_minimum_required(VERSION 3.22.1)
 project("decryptloader")
 
 # This module uses OpenSSL's EVP interface for AES-256-GCM.
-# On most Android NDK setups, OpenSSL isn't bundled by default —
-# you'll need to either:
-#   (a) use a prebuilt OpenSSL-for-Android package (e.g. via vcpkg,
-#       or a precompiled .so/.a checked into this repo per ABI), or
-#   (b) switch to BoringSSL / a small embedded AES-GCM implementation
-#       if you don't want an external dependency.
-# This CMakeLists assumes option (a): an OpenSSL package providing
-# the imported targets OpenSSL::Crypto / OpenSSL::SSL is available.
-# Stage 5 (CI build check) will surface whether this resolves cleanly
-# in the GitHub Actions environment before we worry about on-device use.
+#
+# We deliberately do NOT use find_package(OpenSSL) here. The prebuilt
+# Android OpenSSL packages (e.g. 217heidai/openssl_for_android) ship
+# only raw .a static libraries and headers, with no .pc/pkg-config or
+# CMake config files — find_package's detection heuristics can fail
+# to recognize them even when given OPENSSL_ROOT_DIR, especially when
+# cross-compiling via the Android NDK toolchain file.
+#
+# Instead, pass the OpenSSL root directly via -DOPENSSL_ANDROID_ROOT=<path>
+# pointing at the folder containing include/ and lib/libcrypto.a —
+# this script wires it up directly with no detection magic involved.
 
-find_package(OpenSSL REQUIRED)
+if(NOT DEFINED OPENSSL_ANDROID_ROOT)
+    message(FATAL_ERROR "OPENSSL_ANDROID_ROOT must be set to the prebuilt OpenSSL folder (containing include/ and lib/libcrypto.a)")
+endif()
+
+set(OPENSSL_INCLUDE_DIR "${OPENSSL_ANDROID_ROOT}/include")
+set(OPENSSL_CRYPTO_LIB "${OPENSSL_ANDROID_ROOT}/lib/libcrypto.a")
+
+if(NOT EXISTS "${OPENSSL_CRYPTO_LIB}")
+    message(FATAL_ERROR "libcrypto.a not found at ${OPENSSL_CRYPTO_LIB}")
+endif()
 
 add_library(decryptloader SHARED
         decrypt_loader.cpp)
 
+target_include_directories(decryptloader PRIVATE "${OPENSSL_INCLUDE_DIR}")
+
 find_library(log-lib log)
 
 target_link_libraries(decryptloader
-        OpenSSL::Crypto
+        "${OPENSSL_CRYPTO_LIB}"
         ${log-lib})
