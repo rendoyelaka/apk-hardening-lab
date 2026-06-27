@@ -30,6 +30,10 @@ INVALID_FILE_PATH_RE = re.compile(r"invalid file path '([^']+)'")
 FILE_FAILED_TO_COMPILE_RE = re.compile(r"(/\S+\.xml): error: file failed to compile")
 INVALID_VALUE_FOR_TYPE_RE = re.compile(r"(/\S+\.xml):\d+: error: invalid value for type")
 INVALID_RESOURCE_TYPE_IN_PUBLIC_RE = re.compile(r"(/\S+\.xml):\d+: error: invalid resource type")
+RAW_TYPEN_REFERENCE_FILE_RE = re.compile(
+    r"(/\S+\.xml):\d+: error: expected reference but got"
+)
+RAW_TYPEN_REFERENCE_RE = re.compile(r"@type\d+/[\w.]+")
 NO_DEFINITION_FOR_SYMBOL_RE = re.compile(
     r"no definition for declared symbol '[^:]+:([^/]+)/([^']+)'"
 )
@@ -336,6 +340,35 @@ def strip_orphaned_public_entries() -> int:
     return removed
 
 
+def strip_raw_typen_references(stderr_text: str) -> int:
+    """aapt2 can also fail with 'expected reference but got (raw string)
+    @typeN/Name' when a values file has an <item>/attribute whose literal
+    value text still contains a leftover @typeN/... reference (typeN was
+    apktool's placeholder for an unrecoverable type and never a real
+    Android resource type). Delete the entire line containing each such
+    reference in the reported file; there is no valid type to substitute."""
+    files = {Path(p) for p in RAW_TYPEN_REFERENCE_FILE_RE.findall(stderr_text)}
+    removed = 0
+    for p in files:
+        if not p.exists():
+            continue
+        try:
+            lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+        except (UnicodeDecodeError, OSError):
+            continue
+        new_lines = []
+        changed = False
+        for line in lines:
+            if RAW_TYPEN_REFERENCE_RE.search(line):
+                changed = True
+                removed += 1
+                continue
+            new_lines.append(line)
+        if changed:
+            p.write_text("".join(new_lines), encoding="utf-8")
+    return removed
+
+
 def strip_dangling_style_parents(stderr_text: str) -> int:
     """A <style parent="@style/X"> reference to a style that was removed
     (because it had no real definition) causes the exact same chain of
@@ -395,7 +428,8 @@ def run_apktool_build():
         dangling_removed = strip_dangling_public_symbols(combined)
         dangling_items_removed = strip_dangling_value_items(combined)
         dangling_parents_removed = strip_dangling_style_parents(combined)
-        if dangling_removed or dangling_items_removed or dangling_parents_removed:
+        raw_typen_removed = strip_raw_typen_references(combined)
+        if dangling_removed or dangling_items_removed or dangling_parents_removed or raw_typen_removed:
             if dangling_removed:
                 print(f"[*] Removed {dangling_removed} dangling <public> entr"
                       f"{'y' if dangling_removed == 1 else 'ies'} from "
@@ -409,6 +443,9 @@ def run_apktool_build():
                 print(f"[*] Removed {dangling_parents_removed} dangling style "
                       f"parent reference{'s' if dangling_parents_removed != 1 else ''} "
                       f"(parent style no longer exists) — retrying:")
+            if raw_typen_removed:
+                print(f"[*] Removed {raw_typen_removed} line(s) containing a "
+                      f"literal @typeN/... raw reference — retrying:")
             continue
 
         broken_files = extract_broken_resource_files(combined)
