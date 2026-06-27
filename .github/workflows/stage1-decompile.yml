@@ -127,12 +127,25 @@ jobs:
 
       - name: Download prebuilt OpenSSL for arm64-v8a
         run: |
-          curl -L -o openssl-android.tar.gz \
-            https://github.com/217heidai/openssl_for_android/releases/download/3.6.1/openssl-3.6.1-android-arm64-v8a.tar.gz
+          echo "Querying GitHub API for actual release asset names..."
+          curl -s https://api.github.com/repos/217heidai/openssl_for_android/releases/tags/3.6.1 \
+            -o release_info.json
+          echo "Available assets:"
+          grep -o '"name": *"[^"]*"' release_info.json || cat release_info.json
+
+          DOWNLOAD_URL=$(grep -o '"browser_download_url": *"[^"]*arm64-v8a[^"]*"' release_info.json | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')
+          echo "Resolved download URL: $DOWNLOAD_URL"
+
+          if [ -z "$DOWNLOAD_URL" ]; then
+            echo "[X] Could not find an arm64-v8a asset in the release JSON. See assets list above."
+            exit 1
+          fi
+
+          curl -L -o openssl-android.tar.gz "$DOWNLOAD_URL"
           mkdir -p third_party/openssl-arm64-v8a
           tar -xzf openssl-android.tar.gz -C third_party/openssl-arm64-v8a
           echo "Extracted contents:"
-          find third_party/openssl-arm64-v8a -maxdepth 2
+          find third_party/openssl-arm64-v8a -maxdepth 3
 
       - name: Attempt CMake configure + build for arm64-v8a
         env:
