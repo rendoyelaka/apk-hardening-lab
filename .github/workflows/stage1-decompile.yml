@@ -1,4 +1,4 @@
-name: Stage 1+2+3 - Decompile, Classify, Build Dex
+name: Stage 1+2+3+4 - Decompile, Classify, Build Dex, Encrypt
 
 # Manual trigger only — you run this from the Actions tab, or later from the Telegram bot
 on:
@@ -84,4 +84,31 @@ jobs:
         with:
           name: extracted-dex
           path: build/extracted_classes.dex
+          retention-days: 3
+
+      - name: Install pycryptodome
+        run: pip install pycryptodome --break-system-packages
+
+      - name: Run Stage 4 (encrypt dex into assets/logic.bin)
+        run: python3 tools/crypto/encrypt_dex.py build/extracted_classes.dex assets
+
+      - name: Show encryption result
+        run: |
+          ls -la assets/logic.bin
+          echo "Encrypted blob size: $(du -h assets/logic.bin | cut -f1)"
+          echo "Key file (hex, build-only — not for assets):"
+          cat build/dex_encryption_key.txt
+
+      - name: Upload encrypted blob as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: encrypted-logic-blob
+          path: assets/logic.bin
+          retention-days: 3
+
+      - name: Upload encryption key as artifact (build-only, do not commit)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dex-encryption-key
+          path: build/dex_encryption_key.txt
           retention-days: 3
