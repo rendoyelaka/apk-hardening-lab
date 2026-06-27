@@ -34,7 +34,7 @@ NO_DEFINITION_FOR_SYMBOL_RE = re.compile(
     r"no definition for declared symbol '[^:]+:([^/]+)/([^']+)'"
 )
 RESOURCE_NOT_FOUND_RE = re.compile(
-    r"error: resource ([^\s/]+)/(\S+) \(aka [^)]+\) not found"
+    r"resource\s+([^\s/]+)/(\S+?)\s*\(aka[^)]*\)\s*not found"
 )
 ITEM_NAME_ENTRY_RE_TEMPLATE = (
     r'<item[^>]*\bname="{name}"[^>]*>.*?</item>\s*\n?'
@@ -262,12 +262,10 @@ def run_apktool_build():
         existing_broken = [p for p in broken_files if p.exists()]
 
         if not existing_broken:
-            # Nothing new to remove — this failure isn't one we know how
-            # to self-heal, so stop and show the real error.
             print("[X] Final apktool build failed (no further auto-fixable "
                   "resource files identified)")
-            print(result.stdout[-4000:])
-            print(result.stderr[-4000:])
+            print("[DEBUG] Raw combined output for diagnosis:")
+            print(combined[-6000:])
             sys.exit(1)
 
         print(f"[*] aapt2 rejected {len(existing_broken)} resource file(s) this "
