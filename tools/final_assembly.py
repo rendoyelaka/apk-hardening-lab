@@ -21,7 +21,7 @@ OUTPUT_APK = Path("build/final_unsigned.apk")
 
 TYPE_FOLDER_RE = re.compile(r"^type\d+$")
 PUBLIC_BROKEN_TYPE_ENTRY_RE = re.compile(r'<public[^>]*\btype="type\d+"[^>]*/>\s*\n?')
-MAX_BUILD_ATTEMPTS = 60
+MAX_BUILD_ATTEMPTS = 150
 
 # Matches both failure styles aapt2 prints for unrecoverable resource files:
 #   W: error: invalid file path '/abs/path/res/type1/anim0004.xml'.
