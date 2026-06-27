@@ -36,6 +36,9 @@ NO_DEFINITION_FOR_SYMBOL_RE = re.compile(
 RESOURCE_NOT_FOUND_RE = re.compile(
     r"resource\s+([^\s/]+)/(\S+?)\s*\(aka[^)]*\)\s*not found"
 )
+RESOURCE_NOT_FOUND_FILE_RE = re.compile(
+    r"(/\S+\.xml):\d+: error: resource \S+/\S+ \(aka[^)]*\) not found"
+)
 ITEM_NAME_ENTRY_RE_TEMPLATE = (
     r'<item[^>]*\bname="{name}"[^>]*>.*?</item>\s*\n?'
     r'|<item[^>]*\bname="{name}"[^>]*/>\s*\n?'
@@ -120,39 +123,20 @@ def strip_dangling_public_symbols(stderr_text: str) -> int:
 
 
 def strip_dangling_value_items(stderr_text: str) -> int:
-    """aapt2's link stage also fails with 'resource type/name (aka
-    pkg:type/name) not found' when a values file (styles.xml, themes.xml,
-    etc. — across any values*/ variant directory) still has an <item>
-    referencing an attr/resource whose definition no longer exists
-    (already removed earlier in this loop, or already broken in the
-    original APK). Strip exactly the matching <item name="..."> entries
-    from every values*.xml file under res/; everything else is untouched."""
-    res_dir = FINAL_PROJECT_DIR / "res"
-    if not res_dir.exists():
-        return 0
-
-    names = {name for _, name in RESOURCE_NOT_FOUND_RE.findall(stderr_text)}
-    if not names:
-        return 0
-
-    removed_total = 0
-    for values_dir in res_dir.glob("values*"):
-        if not values_dir.is_dir():
-            continue
-        for xml_file in values_dir.glob("*.xml"):
-            content = xml_file.read_text(encoding="utf-8")
-            new_content = content
-            for name in names:
-                pattern = re.compile(
-                    ITEM_NAME_ENTRY_RE_TEMPLATE.format(name=re.escape(name)),
-                    re.DOTALL,
-                )
-                new_content, n = pattern.subn("", new_content)
-                removed_total += n
-            if new_content != content:
-                xml_file.write_text(new_content, encoding="utf-8")
-
-    return removed_total
+    """aapt2's link stage fails with 'resource type/name (aka pkg:type/name)
+    not found' when a values file (styles.xml, themes.xml, etc.) still
+    references an attr/resource whose definition no longer exists. The
+    <item> syntax that holds these references varies too much to safely
+    pattern-match and strip individual lines, so the whole offending file
+    is removed instead — consistent with how every other unrecoverable
+    resource file in this pipeline is handled."""
+    files = {Path(p) for p in RESOURCE_NOT_FOUND_FILE_RE.findall(stderr_text)}
+    removed = 0
+    for p in files:
+        if p.exists():
+            p.unlink()
+            removed += 1
+    return removed
 
 
 def scaffold_final_project():
