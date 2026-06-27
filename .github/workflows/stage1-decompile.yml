@@ -214,6 +214,25 @@ jobs:
           echo "Result:"
           ls -la build/loader-module-extracted/classes.dex
 
+      - name: Install apktool (for baksmali)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apktool
+
+      - name: Disassemble loader dex back to smali via baksmali
+        run: |
+          baksmali disassemble build/loader-module-extracted/classes.dex \
+            -o build/loader-module-smali
+          echo "Resulting smali files:"
+          find build/loader-module-smali -name "*.smali"
+
+      - name: Upload loader smali as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: loader-module-smali
+          path: build/loader-module-smali
+          retention-days: 3
+
       - name: Upload loader-module dex as artifact
         uses: actions/upload-artifact@v4
         with:
