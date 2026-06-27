@@ -1,4 +1,4 @@
-name: Stage 1+2+3+4 - Decompile, Classify, Build Dex, Encrypt
+name: Stage 1+2+3+4+5 - Dex Pipeline + Native Build Check
 
 # Manual trigger only — you run this from the Actions tab, or later from the Telegram bot
 on:
@@ -112,3 +112,31 @@ jobs:
           name: dex-encryption-key
           path: build/dex_encryption_key.txt
           retention-days: 3
+
+  native-build-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r26d
+
+      - name: Attempt CMake configure + build for arm64-v8a
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          mkdir -p build/native-check
+          cd build/native-check
+          cmake ../../tools/native \
+            -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-24
+          cmake --build . --verbose
+
+      - name: Show build output if successful
+        if: success()
+        run: find build/native-check -name "*.so" -exec ls -la {} \;
