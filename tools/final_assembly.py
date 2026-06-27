@@ -2,24 +2,9 @@
 """
 final_assembly.py
 Stage 6 — the last automatable step.
-
-Builds the actual KEEP project that becomes your final APK:
-  1. Start from the real decoded APK structure (manifest, resources, etc.)
-  2. Strip out all EXTRACT-set smali (the 1889 classes already pulled
-     into the encrypted blob) so they're not duplicated
-  3. Copy in the loader smali (NativeLoader + its companion) produced
-     by baksmali in Stage 5
-  4. Copy assets/logic.bin into the project's assets folder
-  5. Run apktool b on this assembled project to produce final.apk
-
-This does NOT sign the APK or add the compiled .so files — those are
-separate remaining steps (signing needs your keystore; .so placement
-needs per-ABI native builds, only arm64-v8a has been build-checked
-so far). This stage produces an APK that is structurally complete for
-everything CI can verify, but not yet installable until those two
-pieces are added.
 """
 
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -33,6 +18,8 @@ ENCRYPTED_BLOB = Path(sys.argv[5]) if len(sys.argv) > 5 else Path("assets/logic.
 FINAL_PROJECT_DIR = Path("build/final_project")
 OUTPUT_APK = Path("build/final_unsigned.apk")
 
+TYPE_FOLDER_RE = re.compile(r"^type\d+$")
+
 
 def find_smali_roots(decoded_dir: Path):
     return sorted(p for p in decoded_dir.glob("smali*") if p.is_dir())
@@ -42,9 +29,20 @@ def class_name_to_smali_rel(class_name: str) -> str:
     return class_name.replace(".", "/") + ".smali"
 
 
+def strip_unresolved_type_folders():
+    res_dir = FINAL_PROJECT_DIR / "res"
+    if not res_dir.exists():
+        return
+    removed = []
+    for entry in res_dir.iterdir():
+        if entry.is_dir() and TYPE_FOLDER_RE.match(entry.name):
+            removed.append(entry.name)
+            shutil.rmtree(entry)
+    if removed:
+        print(f"[*] Removed unresolved resource type folders: {', '.join(sorted(removed))}")
+
+
 def scaffold_final_project():
-    """Copy the full decoded structure, then strip EXTRACT classes
-    and add the loader smali + encrypted asset."""
     if FINAL_PROJECT_DIR.exists():
         print(f"[!] {FINAL_PROJECT_DIR} exists — removing for a clean build")
         shutil.rmtree(FINAL_PROJECT_DIR)
@@ -88,6 +86,8 @@ def scaffold_final_project():
     final_assets_dir.mkdir(exist_ok=True)
     shutil.copy(ENCRYPTED_BLOB, final_assets_dir / "logic.bin")
 
+    strip_unresolved_type_folders()
+
     print(f"[!] NOTE: native .so libraries are NOT added by this script.")
     print(f"[!] NOTE: this APK is NOT signed by this script.")
     print(f"[!] Both must be added before this APK will actually install/run.")
@@ -95,7 +95,7 @@ def scaffold_final_project():
 
 def run_apktool_build():
     import subprocess
-    cmd = ["apktool", "b", str(FINAL_PROJECT_DIR), "-o", str(OUTPUT_APK), "--use-aapt2", "--copy-original"]
+    cmd = ["apktool", "b", str(FINAL_PROJECT_DIR), "-o", str(OUTPUT_APK), "--use-aapt2"]
     print(f"[*] Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
 
