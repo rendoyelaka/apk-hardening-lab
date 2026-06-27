@@ -90,7 +90,7 @@ jobs:
         run: pip install pycryptodome --break-system-packages
 
       - name: Run Stage 4 (encrypt dex into assets/logic.bin)
-        run: python3 tools/crypto/encrypt_dex.py build/extracted_classes.dex assets
+        run: python3 tools/encrypt_dex.py build/extracted_classes.dex assets
 
       - name: Show encryption result
         run: |
