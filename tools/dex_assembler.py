@@ -87,7 +87,7 @@ def scaffold_project(decoded_dir: Path, extract_classes: list, project_dir: Path
 
 def run_apktool_build(project_dir: Path) -> Path:
     """Run apktool b and return the path to the resulting classes.dex."""
-    cmd = ["apktool", "b", str(project_dir)]
+    cmd = ["apktool", "b", str(project_dir), "--use-aapt2"]
     print(f"[*] Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
 
