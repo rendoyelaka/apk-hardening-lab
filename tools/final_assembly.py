@@ -185,6 +185,11 @@ def scaffold_final_project():
 
     strip_unresolved_type_folders()
     strip_broken_public_entries()
+    proactively_removed = strip_orphaned_public_entries()
+    if proactively_removed:
+        print(f"[*] Proactively removed {proactively_removed} orphaned "
+              f"<public> entries from res/values/public.xml (no backing "
+              f"resource found anywhere in res/)")
 
     print(f"[!] NOTE: native .so libraries are NOT added by this script.")
     print(f"[!] NOTE: this APK is NOT signed by this script.")
@@ -212,6 +217,123 @@ def extract_broken_resource_files(stderr_text: str):
         if m:
             broken.add(Path(m.group(1)))
     return broken
+
+
+PUBLIC_ENTRY_RE = re.compile(
+    r'<public[^>]*\btype="([^"]+)"[^>]*\bname="([^"]+)"[^>]*/>'
+    r'|<public[^>]*\bname="([^"]+)"[^>]*\btype="([^"]+)"[^>]*/>'
+)
+
+# Resource types whose definitions live in res/values*/*.xml as <TYPE
+# name="..."> tags rather than as files (style, attr, id, declare-styleable,
+# bool, integer, color, dimen, string, plurals, array, string-array,
+# integer-array, animator/interpolator entries also live here when they
+# aren't separate files).
+VALUE_BASED_TYPES = {
+    "style", "attr", "id", "bool", "integer", "color", "dimen", "string",
+    "plurals", "array", "fraction", "declare-styleable",
+}
+
+# Resource types that are backed by a file (one file = one resource),
+# located under a res/<type>(-<qualifier>)? directory.
+FILE_BASED_TYPE_DIRS = {
+    "drawable", "layout", "anim", "animator", "interpolator", "menu",
+    "mipmap", "raw", "xml", "color", "transition", "font", "navigation",
+}
+
+
+def collect_defined_value_names(res_dir: Path) -> dict:
+    """Scan every values*/*.xml file and collect the set of names defined
+    for each value-based resource type (e.g. {'style': {'Foo', 'Bar'}})."""
+    defined = {t: set() for t in VALUE_BASED_TYPES}
+    tag_re = re.compile(r'<(style|attr|bool|integer|color|dimen|string|'
+                         r'plurals|array|fraction|declare-styleable|item)'
+                         r'[^>]*\bname="([^"]+)"')
+    for values_dir in res_dir.glob("values*"):
+        if not values_dir.is_dir():
+            continue
+        for xml_file in values_dir.glob("*.xml"):
+            if xml_file.name == "public.xml":
+                continue
+            try:
+                content = xml_file.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            for tag, name in tag_re.findall(content):
+                # <item> tags are ambiguous (used for many types); we only
+                # use the unambiguous tag names directly above for value
+                # types. <item> itself is skipped here deliberately.
+                if tag in defined:
+                    defined[tag].add(name)
+    return defined
+
+
+def collect_defined_file_names(res_dir: Path) -> dict:
+    """For file-based resource types, collect the set of base filenames
+    (without extension) that actually exist under res/<type>*/ dirs."""
+    defined = {t: set() for t in FILE_BASED_TYPE_DIRS}
+    for type_name in FILE_BASED_TYPE_DIRS:
+        for type_dir in res_dir.glob(f"{type_name}*"):
+            if not type_dir.is_dir():
+                continue
+            for f in type_dir.iterdir():
+                if f.is_file():
+                    defined[type_name].add(f.stem)
+    return defined
+
+
+def strip_orphaned_public_entries() -> int:
+    """Proactively cross-check every <public type="X" name="Y" .../> entry
+    in res/values/public.xml against what's actually defined in res/ (as a
+    file or as a values-XML tag). Strip every entry with no backing
+    definition in a single pass, instead of waiting for aapt2 to reveal a
+    handful of them per build attempt."""
+    public_xml = FINAL_PROJECT_DIR / "res" / "values" / "public.xml"
+    res_dir = FINAL_PROJECT_DIR / "res"
+    if not public_xml.exists() or not res_dir.exists():
+        return 0
+
+    defined_values = collect_defined_value_names(res_dir)
+    defined_files = collect_defined_file_names(res_dir)
+
+    content = public_xml.read_text(encoding="utf-8")
+    lines = content.splitlines(keepends=True)
+    kept_lines = []
+    removed = 0
+
+    entry_re = re.compile(
+        r'<public[^>]*\btype="([^"]+)"[^>]*\bname="([^"]+)"[^>]*/>'
+        r'|<public[^>]*\bname="([^"]+)"[^>]*\btype="([^"]+)"[^>]*/>'
+    )
+
+    for line in lines:
+        m = entry_re.search(line)
+        if not m:
+            kept_lines.append(line)
+            continue
+        if m.group(1) is not None:
+            res_type, res_name = m.group(1), m.group(2)
+        else:
+            res_name, res_type = m.group(3), m.group(4)
+
+        if res_type in defined_values:
+            backed = res_name in defined_values[res_type]
+        elif res_type in defined_files:
+            backed = res_name in defined_files[res_type]
+        else:
+            # Unknown/unhandled type category — leave it alone rather
+            # than risk deleting something we can't verify either way.
+            kept_lines.append(line)
+            continue
+
+        if backed:
+            kept_lines.append(line)
+        else:
+            removed += 1
+
+    if removed:
+        public_xml.write_text("".join(kept_lines), encoding="utf-8")
+    return removed
 
 
 def run_apktool_build():
