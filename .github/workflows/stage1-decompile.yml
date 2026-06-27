@@ -314,6 +314,18 @@ jobs:
       - name: Run Stage 6 (final assembly)
         run: python3 tools/final_assembly.py build/decoded build/keep_classes.txt build/extract_classes.txt build/loader-module-smali assets/logic.bin
 
+      - name: DIAGNOSE - inspect res/type1 before failure repeats
+        if: always()
+        run: |
+          echo "Does type1 exist in build/decoded/res (untouched original)?"
+          ls -la build/decoded/res/ | grep -i type1 || echo "NOT in original decoded res"
+          echo ""
+          echo "Does type1 exist in build/final_project/res (after our script ran)?"
+          ls -la build/final_project/res/ | grep -i type1 || echo "NOT in final_project res either"
+          echo ""
+          echo "Full top-level res/ listing in final_project:"
+          ls build/final_project/res/ | head -40
+
       - name: Show final APK info
         run: |
           ls -la build/final_unsigned.apk
