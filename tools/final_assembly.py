@@ -27,6 +27,7 @@ MAX_BUILD_ATTEMPTS = 15
 #   W: /abs/path/res/values/animators.xml:3: error: invalid value for type 'X'. ...
 INVALID_FILE_PATH_RE = re.compile(r"invalid file path '([^']+)'")
 FILE_FAILED_TO_COMPILE_RE = re.compile(r"(/\S+\.xml): error: file failed to compile")
+INVALID_VALUE_FOR_TYPE_RE = re.compile(r"(/\S+\.xml):\d+: error: invalid value for type")
 
 
 def find_smali_roots(decoded_dir: Path):
@@ -110,7 +111,11 @@ def extract_broken_resource_files(stderr_text: str):
         if m:
             broken.add(Path(m.group(1)))
             continue
-        m = FILE_FAILED_TO_COMPILE_RE.search(line.strip())
+        m = FILE_FAILED_TO_COMPILE_RE.search(line)
+        if m:
+            broken.add(Path(m.group(1)))
+            continue
+        m = INVALID_VALUE_FOR_TYPE_RE.search(line)
         if m:
             broken.add(Path(m.group(1)))
     return broken
