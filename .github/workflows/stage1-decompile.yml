@@ -1,4 +1,4 @@
-name: Stage 1+2+3+4+5 - Dex Pipeline + Native Build Check
+name: Stage 1+2+3+4+5+6 - Full Pipeline + Final Assembly
 
 # Manual trigger only — you run this from the Actions tab, or later from the Telegram bot
 on:
@@ -245,4 +245,62 @@ jobs:
         with:
           name: loader-module-build-output
           path: loader-module/build/outputs
+          retention-days: 3
+
+  final-assembly:
+    needs: [decompile, loader-module-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install apktool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apktool
+
+      - name: Download decoded-output artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: decoded-output
+          path: build/decoded
+
+      - name: Download class-split-lists artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: class-split-lists
+          path: build
+
+      - name: Download encrypted-logic-blob artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: encrypted-logic-blob
+          path: assets
+
+      - name: Download loader-module-smali artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: loader-module-smali
+          path: build/loader-module-smali
+
+      - name: Show downloaded structure
+        run: |
+          echo "decoded:"; find build/decoded -maxdepth 1
+          echo "lists:"; ls -la build/*.txt
+          echo "assets:"; ls -la assets
+          echo "loader smali:"; find build/loader-module-smali -name "*.smali"
+
+      - name: Run Stage 6 (final assembly)
+        run: python3 tools/final_assembly.py build/decoded build/keep_classes.txt build/extract_classes.txt build/loader-module-smali assets/logic.bin
+
+      - name: Show final APK info
+        run: |
+          ls -la build/final_unsigned.apk
+          echo "Size: $(du -h build/final_unsigned.apk | cut -f1)"
+
+      - name: Upload final unsigned APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-unsigned-apk
+          path: build/final_unsigned.apk
           retention-days: 3
