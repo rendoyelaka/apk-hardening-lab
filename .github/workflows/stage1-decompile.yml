@@ -22,7 +22,15 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Install apktool
+      - name: Cache apktool
+        id: cache-apktool
+        uses: actions/cache@v4
+        with:
+          path: /usr/bin/apktool
+          key: apktool-bin-v1
+
+      - name: Install apktool (cache miss only)
+        if: steps.cache-apktool.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y apktool
