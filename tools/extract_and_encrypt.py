@@ -21,7 +21,7 @@ def decompile_apk(apk_path: str, output_dir: Path) -> bool:
         import shutil
         shutil.rmtree(output_dir)
 
-    cmd = ["apktool", "d", apk_path, "-o", str(output_dir), "--no-res"]
+    cmd = ["apktool", "d", apk_path, "-o", str(output_dir), "--res-resolve-mode", "lazy"]
     print(f"[*] Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
 
