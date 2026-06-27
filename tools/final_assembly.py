@@ -231,7 +231,7 @@ def extract_broken_resource_files(stderr_text: str):
 
 
 def run_apktool_build():
-    cmd = ["apktool", "b", str(FINAL_PROJECT_DIR), "-o", str(OUTPUT_APK), "--use-aapt2"]
+    cmd = ["apktool", "b", str(FINAL_PROJECT_DIR), "-o", str(OUTPUT_APK), "--use-aapt2", "-f"]
 
     for attempt in range(1, MAX_BUILD_ATTEMPTS + 1):
         print(f"[*] Running (attempt {attempt}/{MAX_BUILD_ATTEMPTS}): {' '.join(cmd)}")
