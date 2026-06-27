@@ -42,7 +42,7 @@ jobs:
         run: python3 tools/extract_and_encrypt.py "${{ inputs.apk_path }}"
 
       - name: Run Stage 2 (locate keep vs extract classes)
-        run: python3 tools/dex_builder/smali_locator.py build/decoded
+        run: python3 tools/smali_locator.py build/decoded
 
       - name: Show class split summary
         run: |
