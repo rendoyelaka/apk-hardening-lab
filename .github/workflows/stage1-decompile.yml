@@ -180,18 +180,46 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
-      - name: Build loader-module and produce dex
+      - name: Build loader-module and produce AAR
         run: gradle :loader-module:assembleDebug --no-daemon
 
-      - name: Locate and show resulting AAR/dex
+      - name: Locate AAR
+        id: locate-aar
         run: |
-          echo "Searching for build output..."
-          find loader-module/build -name "*.aar" -o -name "classes.dex" | head -20
+          AAR_PATH=$(find loader-module/build -name "*.aar" | head -1)
+          echo "Found AAR at: $AAR_PATH"
+          echo "aar_path=$AAR_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Extract classes.jar from AAR
+        run: |
+          mkdir -p build/loader-module-extracted
+          unzip -o "${{ steps.locate-aar.outputs.aar_path }}" -d build/loader-module-extracted
+          echo "AAR contents:"
+          find build/loader-module-extracted -type f
+
+      - name: Convert classes.jar to classes.dex using d8
+        run: |
+          D8_PATH=$(find "$ANDROID_HOME" -name "d8" -type f | head -1)
+          echo "Using d8 at: $D8_PATH"
+          "$D8_PATH" --output build/loader-module-extracted \
+            build/loader-module-extracted/classes.jar
+          echo "Result:"
+          ls -la build/loader-module-extracted/classes.dex
+
+      - name: Upload loader-module dex as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: loader-module-dex
+          path: build/loader-module-extracted/classes.dex
+          retention-days: 3
 
       - name: Upload loader-module build output as artifact
         uses: actions/upload-artifact@v4
