@@ -173,6 +173,14 @@ jobs:
         if: success()
         run: find build/native-check -name "*.so" -exec ls -la {} \;
 
+      - name: Upload native .so (arm64-v8a) as artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-lib-arm64-v8a
+          path: build/native-check/**/*.so
+          retention-days: 3
+
   loader-module-build:
     runs-on: ubuntu-latest
     steps:
@@ -337,3 +345,98 @@ jobs:
           name: final-unsigned-apk
           path: build/final_unsigned.apk
           retention-days: 3
+
+  merge-native-and-sign:
+    needs: [native-build-check, final-assembly]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK (for apksigner/zipalign)
+        uses: android-actions/setup-android@v3
+
+      - name: Download final unsigned APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: final-unsigned-apk
+          path: build
+
+      - name: Download native .so (arm64-v8a) artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: native-lib-arm64-v8a
+          path: build/native-libs
+
+      - name: Show downloaded structure
+        run: |
+          echo "Unsigned APK:"; ls -la build/final_unsigned.apk
+          echo "Native libs downloaded:"; find build/native-libs -name "*.so"
+
+      - name: Insert native .so into APK under lib/arm64-v8a/
+        run: |
+          set -e
+          cp build/final_unsigned.apk build/apk-with-native.apk
+          SO_FILE=$(find build/native-libs -name "*.so" | head -1)
+          if [ -z "$SO_FILE" ]; then
+            echo "[X] No .so file found in downloaded native-lib-arm64-v8a artifact."
+            exit 1
+          fi
+          SO_NAME=$(basename "$SO_FILE")
+          echo "Using native library: $SO_FILE -> lib/arm64-v8a/$SO_NAME"
+
+          mkdir -p build/lib_staging/lib/arm64-v8a
+          cp "$SO_FILE" "build/lib_staging/lib/arm64-v8a/$SO_NAME"
+
+          cd build/lib_staging
+          zip -r ../apk-with-native.apk "lib/arm64-v8a/$SO_NAME"
+          cd ../..
+
+          echo "APK contents (lib/ entries):"
+          unzip -l build/apk-with-native.apk | grep "lib/" || echo "[!] No lib/ entries found — check the steps above"
+
+      - name: Zipalign the APK
+        run: |
+          BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -type d | sort -V | tail -1)
+          echo "Using build-tools: $BUILD_TOOLS_DIR"
+          "$BUILD_TOOLS_DIR/zipalign" -p -f 4 build/apk-with-native.apk build/apk-aligned.apk
+
+      - name: Generate a debug keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore build/debug.keystore \
+            -alias debugkey \
+            -storepass android -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, S=Debug, C=US"
+
+      - name: Sign the APK with apksigner
+        run: |
+          BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -type d | sort -V | tail -1)
+          "$BUILD_TOOLS_DIR/apksigner" sign \
+            --ks build/debug.keystore \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --out build/final_signed_debug.apk \
+            build/apk-aligned.apk
+
+      - name: Verify the signed APK
+        run: |
+          BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -type d | sort -V | tail -1)
+          "$BUILD_TOOLS_DIR/apksigner" verify --print-certs build/final_signed_debug.apk
+          echo "Final signed APK:"
+          ls -la build/final_signed_debug.apk
+          echo "Size: $(du -h build/final_signed_debug.apk | cut -f1)"
+
+      - name: Upload final signed (debug) APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-signed-debug-apk
+          path: build/final_signed_debug.apk
+          retention-days: 7
